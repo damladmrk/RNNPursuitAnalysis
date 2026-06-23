@@ -63,7 +63,7 @@ def train(config):
         )
 
             # 2 - forward
-            z_rnn_final, r_seq = model(z_rnn_0, z_target_0, u_seq)
+            z_rnn_final, r_seq, v_seq = model(z_rnn_0, z_target_0, u_seq)
 
             # 3 - loss
             # L_end = ||z_RNN(T) - z_target(T)||^2 

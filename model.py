@@ -27,16 +27,9 @@ class PursuitRNN(nn.Module):
         self.v_max = v_max
 
         # --- weights ---
-        # W_back ~ N(0, 1) 
         self.W_back = nn.Parameter(torch.empty(N, 4))
-
-        # W_in ~ N(0, 1) 
         self.W_in = nn.Parameter(torch.empty(N, 2))
-
-        # W_rec: recurrent weights
         self.W_rec = nn.Parameter(torch.empty(N, N))
-
-        # no initialization for W_out 
         self.W_out = nn.Parameter(torch.empty(2, N))
 
         # Bias 
@@ -53,7 +46,7 @@ class PursuitRNN(nn.Module):
         args:
             z_rnn_0    : (batch, 2) - RNN-agent initial pos
             z_target_0 : (batch, 2) - target initial pos
-            u_seq      : (T, batch, 2) - target speed sequence [vx
+            u_seq      : (T, batch, 2) - target speed sequence 
 
 
         returns:
@@ -73,10 +66,13 @@ class PursuitRNN(nn.Module):
         # hidden states
         r_seq = []
 
+        # speed sequence for energy loss
+        v_seq = []
+
         for t in range(T):
-            # r(t+1) = ReLU(W_rec @ r(t) + W_in @ u(t) + b)
+            # r(0) = ReLU(W_rec @ r(t) + W_in @ u(t) + b)
             pre_act = r @ self.W_rec.T + u_seq[t] @ self.W_in.T + self.b
-            r = torch.relu(pre_act)  # (batch, N)
+            r = torch.relu(pre_act)  # (batch, N) ~ true ?
             r_seq.append(r)
 
             # --- Output ---
@@ -85,8 +81,9 @@ class PursuitRNN(nn.Module):
             theta = o[:, 0]         
             v = o[:, 1]             
 
-            # v_max = 1.125
+            # v_max = 1.125 m/s
             v = torch.sigmoid(o[:, 1]) * self.v_max
+            v_seq.append(v)
 
             # --- pos update ---
             # z_RNN(t+1) = z_RNN(t) + v * dt * [cos(theta), sin(theta)]
@@ -96,18 +93,30 @@ class PursuitRNN(nn.Module):
             z_rnn = z_rnn + delta_z
 
         r_seq = torch.stack(r_seq, dim=0)  # (T, batch, N)
+        v_seq = torch.stack(v_seq, dim=0)  # (T, batch)
 
-        return z_rnn, r_seq
+        return z_rnn, r_seq, v_seq
 
 
 def pursuit_loss(z_rnn_final, z_target_final):
     """
     L_end = ||z_RNN(T) - z_target(T)||^2
     take mean over the batch
-
-    --- add the tired loss term later ---
-    
     """
     diff = z_rnn_final - z_target_final          # (batch, 2)
     dist_sq = torch.sum(diff ** 2, dim=1)        # (batch,)
     return torch.mean(dist_sq) 
+
+def loss_with_energy_consumption(z_rnn_final, z_target_final, r_seq, v_seq, 
+                                lambda_r=0.001, lambda_v=0.01):
+    # 1 - main goal as to be close to the target / same as classical loss
+    diff = z_rnn_final - z_target_final
+    dist_loss = torch.mean(torch.sum(diff**2, dim=1))
+    
+    # 2 - neurons should not fire too much / is it used or sensable?
+    neural_loss = torch.mean(r_seq**2)
+    
+    # 3 - high speed loss since it can create tiredness 
+    energy_loss = torch.mean(v_seq**2)
+    
+    return dist_loss + lambda_r * neural_loss + lambda_v * energy_loss

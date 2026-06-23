@@ -97,7 +97,7 @@ class PursuitEnvironment:
             2) move towards the target wall (small direction changes)
             3) turn +/-90 degrees when approaching the wall
             4) move along the wall towards x=0
-            -> L-shaped path is created (Fig. 1F)
+            -> L-shaped path is created 
 
         Args:
             batch_size : int
