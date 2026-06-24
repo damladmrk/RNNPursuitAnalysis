@@ -79,7 +79,7 @@ class PursuitEnvironment:
             u_seq.append(u)
  
             # position update
-            z_target = z_target + u * self.dt
+            z_target = z_target + u
             z_target = self.clip_to_arena(z_target)
  
         u_seq         = torch.stack(u_seq, dim=0)  # (T, batch, 2)
@@ -114,10 +114,10 @@ class PursuitEnvironment:
  
         # (z_target_0, z_rnn_0, theta_0)
         configs = [
-            ([ q,  q], [ 0,  q], 0.0       ),  
-            ([-q,  q], [-q,  0], math.pi   ),  
-            ([ q, -q], [ q,  0], 0.0       ),  
-            ([-q, -q], [ 0, -q], math.pi   ),  
+            ([-q, -q], [ 0,  q], 0.0      ),  
+            ([ q, -q], [-q,  0], math.pi  ),  
+            ([-q,  q], [ q,  0], 0.0      ),  
+            ([ q,  q], [ 0, -q], math.pi  ),  
         ]
  
         # randomly choose one of the 4 configs 
@@ -162,7 +162,7 @@ class PursuitEnvironment:
             u_seq.append(u)
  
             # update pos
-            z_target = z_target + u * self.dt
+            z_target = z_target + u
             z_target = self.clip_to_arena(z_target)
  
         u_seq          = torch.stack(u_seq, dim=0)  # (T, batch, 2)
@@ -209,7 +209,7 @@ class PursuitEnvironment:
         return torch.clamp(pos, -self.half, self.half)
 
     # to provide wall avoidance bias, clip to arena
-    def wall_avoidance(self, pos, theta, margin=0.05):
+    def wall_avoidance(self, pos, theta, margin=0.01):
         limit = self.half - margin
  
         # x wall
