@@ -256,7 +256,7 @@ def print_summary(rt_dists, ct_dists):
     print("=" * 40)
 
 if __name__ == '__main__':
-    env = PursuitEnvironment(L=1.0, T=50, dt=0.02, v_max=0.0225)
+    env = PursuitEnvironment(L=1.0, T=50, dt=0.02, v_max=1.125)
  
     torch.manual_seed(42)
     n = 4  # example number of trajectories to plot
