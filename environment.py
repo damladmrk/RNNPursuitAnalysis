@@ -1,106 +1,104 @@
-#trajectories
-
-from turtle import pos
+# environment.py
+# RT and CT trajectory generation
 
 import torch
+import numpy as np
 import math
+
 
 class PursuitEnvironment:
     """
-    RT and CT trajectory 
+    RT and CT trajectory generation.
+
+    Speed measure: m/step
+    u_seq[t] = [vx, vy] where vx,vy in m/step
 
     params:
-        L     : area (1.0m)
-        T     : tot time (50)
-        dt    : time step (0.02s)
-        v_max : max speed (1.125m/dt)
+        L        : area (1.0m)
+        T        : total timesteps (50)
+        dt       : time step (0.02s)
+        v_max    : maximum speed (0.0225 m/step)
     """
 
-    def __init__(self, L=1.0, T=50, dt=0.02, v_max=1.125):
-        self.L     = L
-        self.T     = T
-        self.dt    = dt
-        self.v_max = v_max
-        self.half  = L / 2.0  # [-0.5, 0.5]
+    def __init__(self, L=1.0, T=50, dt=0.02, v_max=0.0225):
+        self.L        = L
+        self.T        = T
+        self.dt       = dt
+        self.v_max    = v_max
+        self.half     = L / 2.0
 
-    # random trajectory (RT)
+        # Rayleigh scale ???????
+        self.b  = 0.13 * 2 * math.pi   # ~0.817 m/s
+        self.border_region = 0.03      # close to wall region (m)
+
+        # Dönüş std
+        self.sigma_RT = 5.76 * 2   # rad/s → * dt 
+        self.sigma_CT = 1.0        # rad/s → * dt 
+
+    # ─────────────────────────────────────────
+    #  RT
+    # ─────────────────────────────────────────
+
     def sample_RT(self, batch_size):
         """
-        random trajectory
-
-        what does it do:
-            - wall avoidance
-            - smooth path -> momentum/bias 
-
-        Args:
-            batch_size : int - trial num
+        Random Trajectory.
 
         Returns:
-            z_rnn_0       : (batch, 2) - RNN agent starting pos
-            z_target_0    : (batch, 2) - target starting pos
-            u_seq         : (T, batch, 2) - target speed sequence [vx, vy]
-            z_target_final: (batch, 2) - target final position
+            z_rnn_0       : (batch, 2)
+            z_target_0    : (batch, 2)
+            u_seq         : (T, batch, 2)  — m/step
+            z_target_final: (batch, 2)
         """
-        sigma_RT = 11.52
-        std_per_step = sigma_RT * self.dt  # 11.52 * 0.02 = 0.2304 rad
- 
-        # --- starting positions: randomly inside the arena ---
+        # initial poss
         z_rnn_0    = (torch.rand(batch_size, 2) - 0.5) * self.L
         z_target_0 = (torch.rand(batch_size, 2) - 0.5) * self.L
- 
-        # --- starting direction: random [-pi, pi] ---
-        theta = (torch.rand(batch_size) * 2 - 1) * math.pi  # (batch,)
- 
-        # --- starting speed: uniform [v_max/2, v_max] ---
-        speed = torch.rand(batch_size) * (self.v_max / 2) + (self.v_max / 2)
- 
-        # --- generate trajectory ---
-        z_target = z_target_0.clone()
+
+        # initial angle
+        hd = np.random.uniform(0, 2 * math.pi, batch_size)
+
+        random_vel  = np.random.rayleigh(self.b, (batch_size, self.T))
+        random_turn = np.random.normal(0, self.sigma_RT, (batch_size, self.T))
+
+        z_target = z_target_0.numpy().copy()
         u_seq    = []
- 
+
         for t in range(self.T):
-            # angle update
-            theta = theta + torch.randn(batch_size) * std_per_step
- 
+            v = random_vel[:, t]          # m/s
+            turn_angle = np.zeros(batch_size)
+
             # wall avoidance
-            theta = self.wall_avoidance(z_target, theta)
- 
-            # speed update 
-            speed = torch.clamp(
-                speed + torch.randn(batch_size) * 0.001,
-                self.v_max / 4,
-                self.v_max
-            )
- 
-            # speed vector: u(t) = [vx, vy]
-            vx = speed * torch.cos(theta)
-            vy = speed * torch.sin(theta)
-            u  = torch.stack([vx, vy], dim=1)  # (batch, 2)
+            is_near, wall_turn = self.wall_avoidance_RT(z_target, hd)
+            turn_angle[is_near] = wall_turn[is_near]
+            v[is_near] *= 0.25  # slow down if near wall
+
+            # update angle 
+            turn_angle += self.dt * random_turn[:, t]
+            hd         += turn_angle
+
+            # take step
+            step = v * self.dt  # m/s * s = m
+            step = np.clip(step, 0, self.v_max)
+
+            vx = step * np.cos(hd)
+            vy = step * np.sin(hd)
+            u  = np.stack([vx, vy], axis=1)  # (batch, 2)
             u_seq.append(u)
- 
-            # position update
+
             z_target = z_target + u
-            z_target = self.clip_to_arena(z_target)
- 
-        u_seq         = torch.stack(u_seq, dim=0)  # (T, batch, 2)
-        z_target_final = z_target
- 
+            z_target = np.clip(z_target, -self.half, self.half)
+
+        u_seq          = torch.tensor(np.stack(u_seq, axis=0), dtype=torch.float32)  # (T, batch, 2)
+        z_target_final = torch.tensor(z_target, dtype=torch.float32)
+
         return z_rnn_0, z_target_0, u_seq, z_target_final
- 
-    # characteristic trajectory (CT)
+
+    # ─────────────────────────────────────────
+    #  CT
+    # ─────────────────────────────────────────
+
     def sample_CT(self, batch_size):
         """
-        characteristic trajectory 
-
-        what does it do:
-            1) choose one of the 4 starting points 
-            2) move towards the target wall (small direction changes)
-            3) turn +/-90 degrees when approaching the wall
-            4) move along the wall towards x=0
-            -> L-shaped path is created 
-
-        Args:
-            batch_size : int
+        Characteristic Trajectory 
 
         Returns:
             z_rnn_0       : (batch, 2)
@@ -108,10 +106,8 @@ class PursuitEnvironment:
             u_seq         : (T, batch, 2)
             z_target_final: (batch, 2)
         """
-        sigma_CT = 1.0
-        std_per_step = sigma_CT * self.dt  # 1.0 * 0.02 = 0.02 rad
-        q = self.L / 4.0                   # L/4 = 0.25
- 
+        q = self.L / 4.0  # 0.25
+
         # (z_target_0, z_rnn_0, theta_0)
         configs = [
             ([-q, -q], [ 0,  q], 0.0      ),  
@@ -119,105 +115,141 @@ class PursuitEnvironment:
             ([-q,  q], [ q,  0], 0.0      ),  
             ([ q,  q], [ 0, -q], math.pi  ),  
         ]
- 
-        # randomly choose one of the 4 configs 
-        choice = torch.randint(0, 4, (batch_size,))
- 
-        z_target_0 = torch.zeros(batch_size, 2)
-        z_rnn_0 = torch.zeros(batch_size, 2)
-        theta = torch.zeros(batch_size)
-        turned = torch.zeros(batch_size, dtype=torch.bool)  
- 
+
+        choice = np.random.randint(0, 4, batch_size)
+
+        z_target_0 = np.zeros((batch_size, 2))
+        z_rnn_0    = np.zeros((batch_size, 2))
+        hd         = np.zeros(batch_size)
+
         for i, (zt, zr, th) in enumerate(configs):
             mask = (choice == i)
-            z_target_0[mask] = torch.tensor(zt, dtype=torch.float32)
-            z_rnn_0[mask]    = torch.tensor(zr, dtype=torch.float32)
-            theta[mask]      = th
- 
-        # --- trajectory ---
-        z_target = z_target_0.clone()
-        speed    = torch.full((batch_size,), self.v_max * 0.8)
+            z_target_0[mask] = zt
+            z_rnn_0[mask] = zr
+            hd[mask] = th
+
+        # target speed sequence
+        random_vel  = np.random.rayleigh(self.b, (batch_size, self.T))
+        random_turn = np.random.normal(0, self.sigma_CT, (batch_size, self.T))
+
+        z_target = z_target_0.copy()
+        wall_id  = np.zeros(batch_size)  # ???????
         u_seq    = []
- 
+
         for t in range(self.T):
-            theta = theta + torch.randn(batch_size) * std_per_step
+            v          = random_vel[:, t]
+            turn_angle = np.zeros(batch_size)
 
-            limit = self.half - 0.08
-            near_wall = (z_target.abs().max(dim=1).values > limit) & ~turned
- 
-            # when approaching the wall, turn +/-90 degrees
-            upper_right = (z_target[:, 0] > 0) & (z_target[:, 1] > 0)
-            lower_left  = (z_target[:, 0] < 0) & (z_target[:, 1] < 0)
-            turn_positive = upper_right | lower_left
- 
-            # torch.where(condition, 1, 0) -> 1 if condition is True, else 0
-            turn_amount = torch.where(turn_positive,torch.tensor(math.pi / 2),torch.tensor(-math.pi / 2))
- 
-            theta  = torch.where(near_wall, theta + turn_amount, theta)
-            turned = turned | near_wall
- 
-            vx = speed * torch.cos(theta)
-            vy = speed * torch.sin(theta)
-            u  = torch.stack([vx, vy], dim=1)
+            # CT wall avoidance
+            is_near, wall_turn, wall_id = self.wall_avoidance_CT(
+                z_target, hd, wall_id
+            )
+            turn_angle[is_near] = wall_turn[is_near]
+            v[is_near] *= 0.25
+
+            # update angle
+            turn_angle += self.dt * random_turn[:, t]
+            hd         += turn_angle
+
+            # take step
+            step = v * self.dt
+            step = np.clip(step, 0, self.v_max)
+
+            vx = step * np.cos(hd)
+            vy = step * np.sin(hd)
+            u  = np.stack([vx, vy], axis=1)
             u_seq.append(u)
- 
-            # update pos
-            z_target = z_target + u
-            z_target = self.clip_to_arena(z_target)
- 
-        u_seq          = torch.stack(u_seq, dim=0)  # (T, batch, 2)
-        z_target_final = z_target
- 
-        return z_rnn_0, z_target_0, u_seq, z_target_final
- 
-    # sample batch
-    def sample_batch(self, batch_size, percent_CT=0.25):
-        """
-        %75 RT + %25 CT batch
 
-        Returns:
-            z_rnn_0       : (batch, 2)
-            z_target_0    : (batch, 2)
-            u_seq         : (T, batch, 2)
-            z_target_final: (batch, 2)
-        """
+            z_target = z_target + u
+            z_target = np.clip(z_target, -self.half, self.half)
+
+        u_seq          = torch.tensor(np.stack(u_seq, axis=0), dtype=torch.float32)
+        z_target_final = torch.tensor(z_target, dtype=torch.float32)
+
+        return (
+            torch.tensor(z_rnn_0, dtype=torch.float32),
+            torch.tensor(z_target_0, dtype=torch.float32),
+            u_seq, z_target_final,
+        )
+
+    # ─────────────────────────────────────────
+    #  BATCH
+    # ─────────────────────────────────────────
+
+    def sample_batch(self, batch_size, percent_CT=0.25):
+        """75% RT + 25% CT karışık batch."""
         n_CT = int(batch_size * percent_CT)
         n_RT = batch_size - n_CT
- 
-        rt_data = self.sample_RT(n_RT)
-        ct_data = self.sample_CT(n_CT)
- 
-        # concatenate RT and CT data
-        z_rnn_0    = torch.cat([rt_data[0], ct_data[0]], dim=0)
-        z_target_0 = torch.cat([rt_data[1], ct_data[1]], dim=0)
-        u_seq      = torch.cat([rt_data[2], ct_data[2]], dim=1)  # dim=1: batch
-        z_target_f = torch.cat([rt_data[3], ct_data[3]], dim=0)
- 
-        # shuffle the batch
-        idx = torch.randperm(batch_size)
-        z_rnn_0    = z_rnn_0[idx]
-        z_target_0 = z_target_0[idx]
-        u_seq      = u_seq[:, idx, :]  
-        z_target_f = z_target_f[idx]
- 
-        return z_rnn_0, z_target_0, u_seq, z_target_f
-    
-    # ============  helpers  ==============
 
-    # pos in the area
-    def clip_to_arena(self, pos):
-        return torch.clamp(pos, -self.half, self.half)
+        rt = self.sample_RT(n_RT)
+        ct = self.sample_CT(n_CT)
 
-    # to provide wall avoidance bias, clip to arena
-    def wall_avoidance(self, pos, theta, margin=0.01):
-        limit = self.half - margin
- 
-        # x wall
-        near_x = pos[:, 0].abs() > limit
-        theta = torch.where(near_x, math.pi - theta, theta)
- 
-        # y wall
-        near_y = pos[:, 1].abs() > limit
-        theta = torch.where(near_y, -theta, theta)
- 
-        return theta
+        z_rnn_0    = torch.cat([rt[0], ct[0]], dim=0)
+        z_target_0 = torch.cat([rt[1], ct[1]], dim=0)
+        u_seq      = torch.cat([rt[2], ct[2]], dim=1)
+        z_target_f = torch.cat([rt[3], ct[3]], dim=0)
+
+        idx        = torch.randperm(batch_size)
+        return (
+            z_rnn_0[idx],
+            z_target_0[idx],
+            u_seq[:, idx, :],
+            z_target_f[idx],
+        )
+
+    # ─────────────────────────────────────────
+    #  HELPERS 
+    # ─────────────────────────────────────────
+
+    def wall_avoidance_RT(self, pos, hd):
+        """RT wall avoidance."""
+        x, y   = pos[:, 0], pos[:, 1]
+        half   = self.half
+        border = self.border_region
+
+        dists  = [half - x, half - y, half + x, half + y]
+        d_wall = np.min(dists, axis=0)
+        angles = np.array([0, math.pi/2, math.pi, 3*math.pi/2])
+        theta  = angles[np.argmin(dists, axis=0)]
+
+        hd_mod = np.mod(hd, 2 * math.pi)
+        a_wall = hd_mod - theta
+        a_wall = np.mod(a_wall + math.pi, 2 * math.pi) - math.pi
+
+        is_near   = (d_wall < border) & (np.abs(a_wall) < math.pi / 2)
+        turn      = np.zeros_like(hd)
+        turn[is_near] = np.sign(a_wall[is_near]) * (math.pi/2 - np.abs(a_wall[is_near]))
+
+        return is_near, turn
+
+    def wall_avoidance_CT(self, pos, hd, wall_id):
+        """
+        CT wall avoidance
+        """
+        x, y   = pos[:, 0], pos[:, 1]
+        half   = self.half
+        border = self.border_region
+
+        dists  = [half - x, half - y, half + x, half + y]
+        d_wall = np.min(dists, axis=0)
+        angles = np.array([0, math.pi/2, math.pi, 3*math.pi/2])
+        theta  = angles[np.argmin(dists, axis=0)]
+
+        hd_mod = np.mod(hd, 2 * math.pi)
+        a_wall = hd_mod - theta
+        a_wall = np.mod(a_wall + math.pi, 2 * math.pi) - math.pi
+
+        is_near = (d_wall < border) & (np.abs(a_wall) < math.pi/2) & (wall_id < 5)
+
+        turn = np.zeros_like(hd)
+        # if upper-right ve lower-left → -pi/2; else → +pi/2
+        turn[is_near & (x > 0) & (y > 0)] = -1 * (math.pi/2 - np.abs(a_wall[is_near & (x > 0) & (y > 0)]))
+        turn[is_near & (x < 0) & (y < 0)] = -1 * (math.pi/2 - np.abs(a_wall[is_near & (x < 0) & (y < 0)]))
+        turn[is_near & (x < 0) & (y > 0)] =  1 * (math.pi/2 - np.abs(a_wall[is_near & (x < 0) & (y > 0)]))
+        turn[is_near & (x > 0) & (y < 0)] =  1 * (math.pi/2 - np.abs(a_wall[is_near & (x > 0) & (y < 0)]))
+
+        # wall_id update
+        wall_id[is_near & (wall_id == 0)] = 1
+        wall_id[wall_id > 0] += 1
+
+        return is_near, turn, wall_id

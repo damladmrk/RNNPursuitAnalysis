@@ -19,13 +19,13 @@ CONFIG = {
     # training part
     'epochs'          : 100,
     'batches_per_epoch': 1000,
-    'batch_size'      : 200,
-    'lr'              : 2.5e-5,    # learning rate
+    'batch_size'      : 400,
+    'lr'              : 1e-4,    # learning rate
     'weight_decay'    : 1e-4,      # weight decay for optimizer (WHY/HOW????)
     'percent_CT'      : 0.25,      # %25 CT, %75 RT
 
     'save_dir'        : 'checkpoints',
-    'save_every'      : 10,        # save every 10 epochs
+    'save_every'      : 100,        # save every 10 epochs
     'log_every'       : 100,       # log every 100 batches
 }
 
@@ -74,6 +74,7 @@ def train(config):
             loss.backward()         # calculate gradients for all parameters in the model with respect to the loss
 
             # 5 - update
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
             optimizer.step()        # weight update: w = w - lr * dw (with Adam)
 
             epoch_loss += loss.item()
