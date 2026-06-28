@@ -7,6 +7,12 @@ import os
 from model import PursuitRNN, pursuit_loss
 from environment import PursuitEnvironment
 
+if torch.backends.mps.is_available():
+    device = torch.device('mps')
+    print("MPS used")
+else:
+    device = torch.device('cpu')
+    print("CPU used")
 
 # config 
 CONFIG = {
@@ -20,12 +26,12 @@ CONFIG = {
     'epochs'          : 100,
     'batches_per_epoch': 1000,
     'batch_size'      : 400,
-    'lr'              : 1e-4,    # learning rate
+    'lr'              : 2e-5,    # learning rate
     'weight_decay'    : 1e-4,      # weight decay for optimizer (WHY/HOW????)
     'percent_CT'      : 0.25,      # %25 CT, %75 RT
 
     'save_dir'        : 'checkpoints',
-    'save_every'      : 100,        # save every 10 epochs
+    'save_every'      : 100,        # save every 100 epochs
     'log_every'       : 100,       # log every 100 batches
 }
 
@@ -35,7 +41,7 @@ def train(config):
     os.makedirs(config['save_dir'], exist_ok=True)
 
     # model
-    model = PursuitRNN(N=config['N'],dt=config['dt'],v_max=config['v_max'])
+    model = PursuitRNN(N=config['N'],dt=config['dt'],v_max=config['v_max']).to(device)
 
     #environment
     env = PursuitEnvironment(L=config['L'],T=config['T'],dt=config['dt'],v_max=config['v_max'])
@@ -45,6 +51,7 @@ def train(config):
 
     # losses
     epoch_losses = []
+    best_loss = float('inf')
 
     print("training...")
     print(f"  N={config['N']}, T={config['T']}, dt={config['dt']}")
@@ -61,6 +68,11 @@ def train(config):
             batch_size=config['batch_size'],
             percent_CT=config['percent_CT']
         )
+            
+            z_rnn_0        = z_rnn_0.to(device)
+            z_target_0     = z_target_0.to(device)
+            u_seq          = u_seq.to(device)
+            z_target_final = z_target_final.to(device)
 
             # 2 - forward
             z_rnn_final, r_seq, v_seq = model(z_rnn_0, z_target_0, u_seq)
@@ -94,20 +106,42 @@ def train(config):
         print(f"Epoch {epoch+1:3d} done | "
               f"Mean Loss: {avg_epoch_loss:.4f} | "
               f"Mean Dist: {avg_dist:.4f} m")
+        
+        if avg_epoch_loss < 0.085 and avg_epoch_loss < best_loss:
+            best_loss = avg_epoch_loss
+            torch.save({
+                'epoch'      : epoch + 1,
+                'model_state': model.cpu().state_dict(),
+                'optim_state': optimizer.state_dict(),
+                'losses'     : epoch_losses,
+                'config'     : config,
+            }, os.path.join(config['save_dir'], 'model_best.pt'))
+            model.to(device)
+            print(f"  -> Best model saved: loss={best_loss:.4f}")
+        
+        # demanded loss check:
+        if avg_epoch_loss < 0.008:
+            print(f"Cut bcs of : {avg_epoch_loss:.4f}")
+            torch.save({
+                'epoch'      : epoch + 1,
+                'model_state': model.cpu().state_dict(),
+                'optim_state': optimizer.state_dict(),
+                'losses'     : epoch_losses,
+                'config'     : config,
+            }, os.path.join(config['save_dir'], 'model_early_stop.pt'))
+            break
 
         # checkpoint save
         if (epoch + 1) % config['save_every'] == 0:
-            path = os.path.join(
-                config['save_dir'],
-                f"model_epoch{epoch+1}.pt"
-            )
+            path = os.path.join(config['save_dir'], f"model_epoch{epoch+1}.pt")
             torch.save({
                 'epoch'      : epoch + 1,
-                'model_state': model.state_dict(),
+                'model_state': model.cpu().state_dict(),  
                 'optim_state': optimizer.state_dict(),
                 'losses'     : epoch_losses,
                 'config'     : config,
             }, path)
+            model.to(device)  
             print(f"  -> Saved: {path}")
 
     print("\ntraining completed")
@@ -115,7 +149,7 @@ def train(config):
     # final model save
     torch.save({
         'epoch'      : config['epochs'],
-        'model_state': model.state_dict(),
+        'model_state': model.cpu().state_dict(),  
         'optim_state': optimizer.state_dict(),
         'losses'     : epoch_losses,
         'config'     : config,
