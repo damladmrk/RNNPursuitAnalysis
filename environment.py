@@ -20,11 +20,12 @@ class PursuitEnvironment:
         v_max    : maximum speed (0.0225 m/step)
     """
 
-    def __init__(self, L=1.0, T=50, dt=0.02, v_max=0.0225):
+    def __init__(self, L=1.0, T=50, dt=0.02, v_max=0.0225, center_bias=False):
         self.L        = L
         self.T        = T
         self.dt       = dt
         self.v_max    = v_max
+        self.center_bias = center_bias
         self.half     = L / 2.0
 
         # Rayleigh scale ???????
@@ -50,8 +51,14 @@ class PursuitEnvironment:
             z_target_final: (batch, 2)
         """
         # initial poss
-        z_rnn_0    = (torch.rand(batch_size, 2) - 0.5) * self.L
-        z_target_0 = (torch.rand(batch_size, 2) - 0.5) * self.L
+        if self.center_bias:
+        # start in a small region around the center (does not affect in 1m arenas)
+            z_rnn_0    = (torch.rand(batch_size, 2) - 0.5) * 1.0
+            z_target_0 = (torch.rand(batch_size, 2) - 0.5) * 1.0
+        else:
+            # whole arena; start between [-L/2, L/2] 
+            z_rnn_0    = (torch.rand(batch_size, 2) - 0.5) * self.L
+            z_target_0 = (torch.rand(batch_size, 2) - 0.5) * self.L
 
         # initial angle
         hd = np.random.uniform(0, 2 * math.pi, batch_size)
@@ -106,7 +113,8 @@ class PursuitEnvironment:
             u_seq         : (T, batch, 2)
             z_target_final: (batch, 2)
         """
-        q = self.L / 4.0  # 0.25
+        # q = self.L / 4.0  ~ changed due to area experiments/start close to center
+        q = 0.25
 
         # (z_target_0, z_rnn_0, theta_0)
         configs = [

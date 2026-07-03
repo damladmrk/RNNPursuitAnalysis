@@ -3,6 +3,7 @@
 
 import torch
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from environment import PursuitEnvironment
@@ -26,7 +27,7 @@ def sample_trajectories(env, n_RT=5, n_CT=5, seed=42):
     return rt_data, ct_data
 
 
-def reconstruct_target_trajectory(z_target_0, u_seq, dt):
+def reconstruct_target_trajectory(z_target_0, u_seq, dt=1, half=0.5):
     """
     Reconstruct target trajectory from starting pos and velocity sequence.
 
@@ -45,7 +46,7 @@ def reconstruct_target_trajectory(z_target_0, u_seq, dt):
     pos = z_target_0.clone()
     for t in range(T):
         pos = pos + u_seq[t] * dt
-        pos = torch.clamp(pos, -0.5, 0.5)
+        pos = torch.clamp(pos, -half, half)
         traj[t + 1] = pos
     return traj
 
@@ -338,7 +339,7 @@ if __name__ == '__main__':
 
 
 # ─────────────────────────────────────────────
-#  VIDEO FONKSİYONU
+#  VIDEO FUNCTIONS
 # ─────────────────────────────────────────────
 
 def make_pursuit_video(model, env, trial_type='RT', trial_idx=0,
@@ -368,9 +369,10 @@ def make_pursuit_video(model, env, trial_type='RT', trial_idx=0,
         data = env.sample_CT(trial_idx + 1)
 
     z_rnn_0, z_target_0, u_seq, z_target_final = data
+    half = env.half
 
     # target trajectory
-    target_traj = reconstruct_target_trajectory(z_target_0, u_seq)  # (T+1, batch, 2)
+    target_traj = reconstruct_target_trajectory(z_target_0, u_seq, half=env.half)  # (T+1, batch, 2)
 
     # RNN trajectory
     rnn_traj = run_model_trajectory(model, z_rnn_0, z_target_0, u_seq)  # (T+1, batch, 2)
@@ -386,12 +388,12 @@ def make_pursuit_video(model, env, trial_type='RT', trial_idx=0,
 
     # figure
     fig, ax = plt.subplots(figsize=(5, 5))
-    ax.set_xlim(-0.55, 0.55)
-    ax.set_ylim(-0.55, 0.55)
+    ax.set_xlim(-half - 0.05, half + 0.05)
+    ax.set_ylim(-half - 0.05, half + 0.05)
     ax.set_aspect('equal')
     ax.set_xticks([])
     ax.set_yticks([])
-    rect = plt.Rectangle((-0.5, -0.5), 1.0, 1.0,
+    rect = plt.Rectangle((-half, -half), env.L, env.L,
                          fill=False, edgecolor='gray', linewidth=1.5)
     ax.add_patch(rect)
     ax.set_title(f'{trial_type} Trial', fontsize=12, fontweight='bold')
