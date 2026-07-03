@@ -38,25 +38,17 @@ style: |
 
  **Reproduction of Redman, Dinç et al.** 
 
-Damla Demirok
+Damla ☘
 
 ---
 
 ##  Motivation: What is the Problem?
 
-* **The Challenge:** A moving target in a 2D arena — can a network learn to chase it?
+* **Concern:** A moving target in a 2D arena — can a network learn to chase it?
 * **Biological Inspiration:**   
   * Spatial mapping in the brain
   * Predator-prey dynamics
-* **Goal:**  "We train an RNN to predict where a target will be and navigate to it."
-
----
-
-##  What is an RNN?
-
-* **Core Concept:** Unlike vanilla neural networks, a Recurrent Neural Network (RNN) processes sequential data by maintaining an internal memory.
-* **The Hidden State:** The network has a hidden state $r(t)$ that updates at each timestep based on both the current input and its own past state.
-* **Why RNN here?** The target moves dynamically over time. The network must remember past positions to infer the target's trajectory and predict future ones.
+* **Goal:**  "We train an RNN to **predict** where a target will be and navigate to it."
 
 ---
 
@@ -145,7 +137,7 @@ Inputs ($z_{\text{RNN}}(0)$, $z_{\text{target}}(0)$, velocity updates $u(t)$) pa
 
 * **Primary Objective (Pursuit Loss):** Minimize distance at the final.
   $$\mathcal{L}_{\text{end}} = \frac{1}{B} \sum_{b=1}^B \|z_{\text{RNN}}^{(b)}(T) - z_{\text{target}}^{(b)}(T)\|^2$$
-* **Regularized Loss (Neural + Energy Regularization):**
+* **Regularized Loss - unused (Neural/Energy Regularization):**
   $$\mathcal{L} = \mathcal{L}_{\text{end}} + \lambda_r \underbrace{\langle r^2 \rangle}_{\text{neural cost}} + \lambda_v \underbrace{\langle v^2 \rangle}_{\text{movement cost}}$$
 * **Hyperparameters:** Adam optimizer, $\text{lr} = 2 \times 10^{-5}$, 100 epochs, batch size 400.
 * **Batch Composition:** 75% RT + 25% CT trajectories per batch.
@@ -181,7 +173,7 @@ for epoch in range(epochs):
 
 <center style="margin-top: 20px; font-style: italic; color: #a3a3a3;">
   Loss drops sharply in first 5 epochs, converges by epoch 40. 
-  Training stopped at epoch 40 via early stopping (loss < 0.007).
+  Training stopped at epoch 40 with early stopping (loss < 0.007).
 </center>
 
 --- 
@@ -190,7 +182,7 @@ for epoch in range(epochs):
 <br>
 
 <center>
-  <img src="images/distance_distributions.png" width="850px" style="border-radius: 8px;"/>
+  <img src="images/distance_distributions.png" width="950px" style="border-radius: 8px;"/>
 </center>
 
 <center style="margin-top: 12px; font-weight: bold; color: #38bdf8;">
@@ -205,17 +197,17 @@ for epoch in range(epochs):
 
 <div style="display: flex; justify-content: space-around; margin-top: 20px; font-size: 18px;">
   <div>
-    <span style="color: #38bdf8; font-weight: bold;">Finding 1:</span><br>
+    <span style="color: #38bdf8; font-weight: bold;"></span><br>
     RT performance degrades with arena size —<br>
     model was trained on 1m, larger arenas are unseen.
   </div>
   <div>
-    <span style="color: #10b981; font-weight: bold;">Finding 2:</span><br>
+    <span style="color: #10b981; font-weight: bold;"></span><br>
     CT performance remains stable across all arenas —<br>
     structured trajectories generalize robustly.
   </div>
   <div>
-    <span style="color: #f43f5e; font-weight: bold;">Finding 3:</span><br>
+    <span style="color: #f43f5e; font-weight: bold;"></span><br>
     Center bias matters for RT but not CT —<br>
     starting position determines reachability.
   </div>
@@ -292,6 +284,10 @@ section { font-size: 27px; }
 ---
 ## — Conclusion: Next Steps
 
+<style scoped>
+section { font-size: 27px; }
+</style>
+
 * **Neural analysis:** Examine hidden state $r(t)$ dynamics — do egocentric target units (ETUs) emerge as in the paper?
 
 * **Energy regularization:** Compare models trained with and without metabolic cost $\lambda_r \langle r^2 \rangle + \lambda_v \langle v^2 \rangle$ — does it change pursuit strategy?
@@ -299,5 +295,7 @@ section { font-size: 27px; }
 * **Low-rank experiments:** Does predictive behavior require high-dimensional connectivity?
 
 * **Longer training:** Current model trained for 40 epochs/end at loss <0.07. Would longer training change the results?
+
+* **Max speed engagement:** Changing the max_speed possible with the area size in training. Would this made the results more consistent?
 
 * **Periodic boundaries:** Extending environment to torus topology — does the model learn to anticipate wrap-around?
