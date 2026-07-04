@@ -60,7 +60,7 @@ Damla ☘
   * **CT (Characteristic Trajectory):** Structured diagonal patterns.
 
 <center>
-  <img src="trajectories_example.png" width="450px" style="border-radius: 8px; border: 1px solid #38bdf8;"/>
+  <img src="images/trajectories_example.png" width="450px" style="border-radius: 8px; border: 1px solid #38bdf8;"/>
 </center>
 
 ---
@@ -92,12 +92,12 @@ Damla ☘
 
   <div class="video-col">
     <span class="video-title" style="color: #f43f5e;">Random Trajectory (RT)</span>
-    <video src="/Users/damlademirok/Desktop/uscb/rnn/pursuit_rnn/videos/RT_1.mp4" width="100%" controls autoplay loop muted style="border-radius: 8px; border: 2px solid #f43f5e;"></video>
+    <video src="videos/RT_1.mp4" width="100%" controls autoplay loop muted style="border-radius: 8px; border: 2px solid #f43f5e;"></video>
   </div>
 
   <div class="video-col">
     <span class="video-title" style="color: #10b981;">Characteristic Trajectory (CT)</span>
-    <video src="/Users/damlademirok/Desktop/uscb/rnn/pursuit_rnn/videos/CT_1.mp4" width="100%" controls autoplay loop muted style="border-radius: 8px; border: 2px solid #10b981;"></video>
+    <video src="videos/CT_1.mp4" width="100%" controls autoplay loop muted style="border-radius: 8px; border: 2px solid #10b981;"></video>
   </div>
 
 </div>
